@@ -1,6 +1,9 @@
 //! Auto-update: look on GitHub Releases (`build_info::RELEASES_REPO`) for a newer version, download
 //! the single exe, swap it in and restart.
 //!
+//! This fork ships with [`UPDATES_ENABLED`] off, so none of it runs and no network request is made;
+//! the code stays for a future update source of our own.
+//!
 //! - Channels: stable sees stable only; RC sees RC and stable; nightly sees everything. Versions
 //!   compare by SemVer (`0.2.0-nightly.20261110` < `0.2.0-rc.1` < `0.2.0`).
 //! - Downloads go to `%LOCALAPPDATA%\Arke\updates`, verified against `.sha256` when present.
@@ -22,6 +25,14 @@ use crate::build_info::{self, Channel};
 /// Argument for the new version's launch, followed by the old pid (waits for it to exit before
 /// taking over).
 pub(crate) const AFTER_UPDATE_ARG: &str = "--after-update";
+
+/// Whether this build may contact an update source at all.
+///
+/// This fork ships with update checks off: the automatic check after startup, the "check now"
+/// button and the re-check after a channel change all do nothing, and Settings › About › Updates
+/// says so. The whole machinery stays, so pointing it at your own source later is a matter of
+/// setting this to `true` and building with `ARKE_RELEASES_REPO=owner/name` (see `build.rs`).
+pub(crate) const UPDATES_ENABLED: bool = false;
 
 // ───────────────────────── Version ─────────────────────────
 
@@ -246,6 +257,9 @@ fn pick_for(json: &str, channel: Channel, current: &Version, suffix: &str) -> Op
 
 /// Check once (background thread): `Ok(None)` means up to date.
 pub(crate) fn check(channel: Channel) -> Result<Option<Release>, UpdateError> {
+    if !UPDATES_ENABLED {
+        return Err(UpdateError::NoSource);
+    }
     let repo = build_info::RELEASES_REPO;
     if repo.is_empty() {
         return Err(UpdateError::NoSource);
@@ -259,7 +273,7 @@ pub(crate) fn check(channel: Channel) -> Result<Option<Release>, UpdateError> {
 }
 
 fn updates_dir() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Arke").join("updates"))
+    crate::paths::cache_dir().map(|dir| dir.join("updates"))
 }
 
 /// Download the new version (background thread) and verify SHA-256. `progress(downloaded, total)`.
@@ -503,6 +517,9 @@ impl UpdateState {
 
 /// Check for updates in the background; results go to [`UpdateState`].
 pub(crate) fn start_check(channel: Channel, cx: &mut App) {
+    if !UPDATES_ENABLED {
+        return;
+    }
     if matches!(
         UpdateState::get(cx),
         UpdateState::Checking | UpdateState::Downloading(..)
@@ -717,7 +734,8 @@ pub(crate) fn channel_changed(channel: Channel, cx: &mut App) {
         .read(cx)
         .settings
         .update_auto;
-    let can_check = auto && !build_info::RELEASES_REPO.is_empty() && package_manager().is_none();
+    let can_check =
+        UPDATES_ENABLED && auto && !build_info::RELEASES_REPO.is_empty() && package_manager().is_none();
     match on_channel_change(&UpdateState::get(cx), can_check) {
         OnChannelChange::Keep => {}
         OnChannelChange::Forget => UpdateState::set(cx, UpdateState::Idle),
@@ -729,6 +747,9 @@ pub(crate) fn channel_changed(channel: Channel, cx: &mut App) {
 /// Automatic check after startup: when enabled and more than 20 hours since the last check (nightly
 /// ships daily).
 pub(crate) fn auto_check(cx: &mut App) {
+    if !UPDATES_ENABLED {
+        return;
+    }
     let settings = crate::settings::SettingsStore::global(cx)
         .read(cx)
         .settings

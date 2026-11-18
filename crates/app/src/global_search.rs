@@ -715,9 +715,10 @@ pub(crate) fn local_drives(shell: &dyn Shell) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `%LOCALAPPDATA%\Arke\index.bin` (string handling only).
+/// The search index: `%LOCALAPPDATA%\Arke\index.bin`, or `<exe>\data\index.bin` in portable mode
+/// (see `paths.rs`). String handling only.
 pub(crate) fn default_cache_path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join("Arke").join("index.bin"))
+    crate::paths::cache_dir()?.join("index.bin")
 }
 
 /// Whether a path is on the network (`\\server\share\…` or a mapped drive). Uses the path and the

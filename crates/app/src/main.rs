@@ -17,6 +17,9 @@
 //!
 //! By default the first Arke stays in the background after its last window closes, so later
 //! launches only open a window without reinitializing the GPU. See `instance.rs`.
+//!
+//! Portable mode: an empty file named `portable` next to the exe moves every data file (settings,
+//! index, log, downloads) to `<exe folder>\data`. See `paths.rs`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // Tests may unwrap and panic.
@@ -56,6 +59,7 @@ mod net_dialog;
 mod op_center;
 mod op_queue;
 mod palette;
+mod paths;
 mod prefs;
 mod recycle_bin;
 mod remote_shell;
@@ -514,9 +518,10 @@ fn app_main(mut args: Args) {
                 cx,
             );
         }
-        // Auto-update: delete the old binary left from last time; check a bit after startup so it
-        // doesn't compete, then every hour while Arke keeps running (it can stay in the
-        // notification area for days). `auto_check` only checks when 20 hours have passed.
+        // Auto-update: delete the old binary left from last time, then check a bit after startup
+        // and every hour while Arke keeps running (it can stay in the notification area for days).
+        // `auto_check` only checks when 20 hours have passed, and in this fork returns at once
+        // (`update::UPDATES_ENABLED` is off).
         if bench.is_none() {
             explorer::spawn_thread("update-cleanup", update::clean_up_old);
             cx.spawn(async |cx| {
