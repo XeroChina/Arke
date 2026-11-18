@@ -292,7 +292,7 @@ pub(crate) enum Step {
 /// The steps for this PC, in order.
 pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
     if let Some(other) = m.others.first() {
-        return plan_with_other_copy(m, other);
+        return plan_with_other_copy(m, other, keep_settings);
     }
     let arke = |base: &PathBuf| base.join("Arke");
     let mut steps = vec![Step::QuitArke];
@@ -348,7 +348,7 @@ pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
 }
 
 /// [`plan`] while `other` (another copy of Arke) stays: only this copy and what points at it go.
-fn plan_with_other_copy(m: &Machine, other: &Path) -> Vec<Step> {
+fn plan_with_other_copy(m: &Machine, other: &Path, keep_settings: bool) -> Vec<Step> {
     let mut steps = vec![Step::QuitArke, Step::KeepShared(other.to_path_buf())];
     if m.ours.folder_handler {
         // Folders go back to File Explorer, so the shared setting reads off; the other copy can

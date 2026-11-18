@@ -946,7 +946,7 @@ impl SettingsStore {
 /// Settings file: `%APPDATA%\Arke\settings.json`, or `<exe>\data\settings.json` in portable mode
 /// (a `portable` file next to the exe; see `paths.rs`). String handling only.
 pub(crate) fn default_path() -> Option<PathBuf> {
-    crate::paths::settings_dir()?.join("settings.json")
+    Some(crate::paths::settings_dir()?.join("settings.json"))
 }
 
 /// Turns "Open folders in Arke" off in the settings file (for `--restore-explorer`, which runs

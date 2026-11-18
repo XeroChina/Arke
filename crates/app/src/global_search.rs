@@ -718,7 +718,7 @@ pub(crate) fn local_drives(shell: &dyn Shell) -> Vec<PathBuf> {
 /// The search index: `%LOCALAPPDATA%\Arke\index.bin`, or `<exe>\data\index.bin` in portable mode
 /// (see `paths.rs`). String handling only.
 pub(crate) fn default_cache_path() -> Option<PathBuf> {
-    crate::paths::cache_dir()?.join("index.bin")
+    Some(crate::paths::cache_dir()?.join("index.bin"))
 }
 
 /// Whether a path is on the network (`\\server\share\…` or a mapped drive). Uses the path and the
