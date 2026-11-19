@@ -2358,6 +2358,10 @@ net.letter:
   en: Drive letter
   zh-TW: 磁碟機代號
   zh-CN: 驱动器号
+net.no_letter:
+  en: No drive letter
+  zh-TW: 不指派磁碟機代號
+  zh-CN: 不分配
 net.user:
   en: User name
   zh-TW: 使用者名稱

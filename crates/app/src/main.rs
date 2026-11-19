@@ -55,6 +55,7 @@ mod home;
 mod instance;
 mod media;
 mod motion;
+mod net_creds;
 mod net_dialog;
 mod op_center;
 mod op_queue;

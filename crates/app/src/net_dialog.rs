@@ -171,7 +171,7 @@ impl NetDialog {
             NetDialogKind::RemoteLogin { .. } => password.focus_handle(cx),
         };
         window.focus(&first, cx);
-        Self {
+        let mut this = Self {
             kind,
             shell,
             remotes,
@@ -191,7 +191,16 @@ impl NetDialog {
             error: None,
             pending_key: None,
             _inputs: inputs,
+        };
+        // A saved sign-in is filled in, so opening a remembered share is one click.
+        if let NetDialogKind::Login { share } = &this.kind
+            && let Some((user, password)) = crate::net_creds::get(share)
+        {
+            this.user.update(cx, |i, cx| i.set_text(user, cx));
+            this.password.update(cx, |i, cx| i.set_text(password, cx));
+            this.remember = true;
         }
+        this
     }
 
     /// Enter submits and Esc cancels in the inputs.
@@ -346,6 +355,10 @@ impl NetDialog {
             cx.notify();
             return;
         }
+        // Remembered here as well, so a portable copy keeps the passwords with it.
+        let saved = self
+            .remember
+            .then(|| (share.clone(), user.clone(), password.clone()));
         let request = NetConnect {
             share,
             drive: self.letter,
@@ -367,8 +380,13 @@ impl NetDialog {
                 Ok(result) => result.map_err(|e| e.to_string()),
                 Err(_) => Err(String::new()),
             };
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update(cx, move |this, cx| {
                 this.busy = false;
+                if result.is_ok()
+                    && let Some((share, user, password)) = saved
+                {
+                    crate::net_creds::put(&share, &user, &password);
+                }
                 this.clear_password(cx);
                 match result {
                     Ok(()) => cx.emit(NetDialogEvent::Connected),
@@ -711,7 +729,19 @@ impl NetDialog {
                     .child(field(&self.folder, window, cx))
                     .child(label(t!("net.letter").into_owned()))
                     .child(div().flex().flex_wrap().gap(theme::S_4).children(
-                        letters.into_iter().enumerate().map(|(ix, letter)| {
+                        // First choice: no letter, so the share is reached by its UNC path only.
+                        std::iter::once(
+                            chip(
+                                ("net-letter-none", 0),
+                                t!("net.no_letter"),
+                                self.letter.is_none(),
+                            )
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.letter = None;
+                                cx.notify();
+                            })),
+                        )
+                        .chain(letters.into_iter().enumerate().map(|(ix, letter)| {
                             chip(
                                 ("net-letter", ix),
                                 format!("{letter}:"),
