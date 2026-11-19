@@ -25,7 +25,7 @@ const IV_LEN: usize = 16;
 const MAC_LEN: usize = 32;
 const BLOCK_LEN: usize = 64;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 struct Store {
     #[serde(default)]
     entries: Vec<Entry>,
@@ -57,6 +57,7 @@ impl Credentials {
             .and_then(|bytes| serde_json::from_slice::<Store>(&bytes).ok())
             .unwrap_or_default();
         let key = std::fs::read(dir.join(KEY_FILE))
+            .ok()
             .filter(|k| k.len() == KEY_LEN)
             .unwrap_or_else(|| {
                 let key = random_key();
@@ -87,7 +88,7 @@ impl Credentials {
     }
 
     /// Remembers (or replaces) the credentials for `share` and writes the store.
-    pub(crate) fn put(&self, share: &Path, user: &str, password: &str) {
+    pub(crate) fn put(&mut self, share: &Path, user: &str, password: &str) {
         if user.is_empty() || password.is_empty() {
             return;
         }
@@ -119,7 +120,7 @@ impl Credentials {
     }
 
     /// Forgets the credentials for `share` and writes the store.
-    pub(crate) fn remove(&self, share: &Path) {
+    pub(crate) fn remove(&mut self, share: &Path) {
         let target = target_key(share);
         if self.store.entries.iter().any(|e| e.target == target) {
             self.store.entries.retain(|e| e.target != target);
@@ -139,7 +140,8 @@ pub(crate) fn put(share: &Path, user: &str, password: &str) {
     let Some(dir) = paths::settings_dir() else {
         return;
     };
-    Credentials::load(&dir).put(share, user, password);
+    let mut credentials = Credentials::load(&dir);
+    credentials.put(share, user, password);
 }
 
 /// Forgets the credentials for `share` in the settings folder.
@@ -147,7 +149,8 @@ pub(crate) fn remove(share: &Path) {
     let Some(dir) = paths::settings_dir() else {
         return;
     };
-    Credentials::load(&dir).remove(share);
+    let mut credentials = Credentials::load(&dir);
+    credentials.remove(share);
 }
 
 /// `\\server\share` without a trailing backslash, lower-cased.
@@ -233,7 +236,7 @@ fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
             return None;
         }
         let mut handle = BCRYPT_KEY_HANDLE::default();
-        if !BCryptGenerateSymmetricKey(alg, &mut handle, None, 0, key, 0).is_ok() {
+        if !BCryptGenerateSymmetricKey(alg, &mut handle, None, key, 0).is_ok() {
             let _ = BCryptCloseAlgorithmProvider(alg, 0);
             return None;
         }
@@ -291,7 +294,7 @@ fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
             return None;
         }
         let mut handle = BCRYPT_KEY_HANDLE::default();
-        if !BCryptGenerateSymmetricKey(alg, &mut handle, None, 0, key, 0).is_ok() {
+        if !BCryptGenerateSymmetricKey(alg, &mut handle, None, key, 0).is_ok() {
             let _ = BCryptCloseAlgorithmProvider(alg, 0);
             return None;
         }
@@ -379,7 +382,7 @@ fn from_hex(text: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    fn dir(tag: &str) -> PathBuf {
+    fn fresh(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("arke-net-creds-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -388,8 +391,8 @@ mod tests {
 
     #[test]
     fn a_password_survives_the_round_trip() {
-        let dir = dir("round");
-        let store = Credentials::load(&dir);
+        let dir = fresh("round");
+        let mut store = Credentials::load(&dir);
         let share = Path::new(r"\\NAS\Photos");
         assert!(store.get(share).is_none());
         store.put(share, "sam", "hunter2");
@@ -407,8 +410,8 @@ mod tests {
 
     #[test]
     fn the_share_key_ignores_case_and_trailing_slashes() {
-        let dir = dir("case");
-        let store = Credentials::load(&dir);
+        let dir = fresh("case");
+        let mut store = Credentials::load(&dir);
         store.put(Path::new(r"\\NAS\Photos"), "sam", "hunter2");
         assert!(store.get(Path::new(r"\\nas\photos\")).is_some());
         assert!(store.get(Path::new(r"\\NAS\Other")).is_none());
@@ -417,8 +420,8 @@ mod tests {
 
     #[test]
     fn a_tampered_file_or_key_is_dropped() {
-        let dir = dir("tamper");
-        let store = Credentials::load(&dir);
+        let dir = fresh("tamper");
+        let mut store = Credentials::load(&dir);
         store.put(Path::new(r"\\NAS\Photos"), "sam", "hunter2");
         drop(store);
         // Flip a character in the ciphertext.
@@ -428,8 +431,8 @@ mod tests {
         std::fs::write(&path, flipped).unwrap();
         assert!(Credentials::load(&dir).get(Path::new(r"\\NAS\Photos")).is_none());
         // A different key can't decrypt it either.
-        let dir = dir("key");
-        let store = Credentials::load(&dir);
+        let dir = fresh("key");
+        let mut store = Credentials::load(&dir);
         store.put(Path::new(r"\\NAS\Photos"), "sam", "hunter2");
         drop(store);
         std::fs::write(dir.join(KEY_FILE), vec![7u8; KEY_LEN]).unwrap();
@@ -439,8 +442,8 @@ mod tests {
 
     #[test]
     fn empty_or_foreign_input_is_ignored() {
-        let dir = dir("empty");
-        let store = Credentials::load(&dir);
+        let dir = fresh("empty");
+        let mut store = Credentials::load(&dir);
         store.put(Path::new(r"\\NAS\Photos"), "", "hunter2");
         store.put(Path::new(r"\\NAS\Photos"), "sam", "");
         assert!(store.get(Path::new(r"\\NAS\Photos")).is_none());

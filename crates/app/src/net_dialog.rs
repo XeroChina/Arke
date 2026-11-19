@@ -732,7 +732,7 @@ impl NetDialog {
                         // First choice: no letter, so the share is reached by its UNC path only.
                         std::iter::once(
                             chip(
-                                ("net-letter-none", 0),
+                                ("net-letter-none", 0usize),
                                 t!("net.no_letter"),
                                 self.letter.is_none(),
                             )
