@@ -754,7 +754,7 @@ impl NetDialog {
                                     cx.notify();
                                 },
                             ))
-                        }),
+                        })),
                     ))
             })
             .child(label(if is_map {
