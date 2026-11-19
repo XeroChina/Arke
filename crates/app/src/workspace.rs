@@ -402,7 +402,7 @@ impl Workspace {
                 });
                 let (view, path) = slot
                     .after
-                    .unwrap_or_else(|| (self.active_view().clone(), open));
+                    .unwrap_or_else(|| (self.active_view().clone(), open.to_path_buf()));
                 view.update(cx, |v, cx| {
                     v.navigate(path, arke_core::NavKind::New, cx);
                 });
