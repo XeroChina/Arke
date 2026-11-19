@@ -59,8 +59,9 @@ pub(crate) enum NetDialogKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NetDialogEvent {
-    /// Connected
-    Connected,
+    /// Connected to a share. `share` is the UNC root, saved to the sidebar's Network list; `open`
+    /// is where to go next: the mapped drive, or the UNC path when no letter was taken.
+    Connected { share: PathBuf, open: PathBuf },
     /// Connected to an SFTP or WebDAV server; `save` adds it to the sidebar.
     RemoteConnected { place: RemotePlace, save: bool },
     /// Canceled or closed
@@ -359,6 +360,12 @@ impl NetDialog {
         let saved = self
             .remember
             .then(|| (share.clone(), user.clone(), password.clone()));
+        // The share itself goes to the sidebar; a mapped drive is opened in its place.
+        let share_for_event = share.clone();
+        let open = self
+            .letter
+            .map(|letter| PathBuf::from(format!("{letter}:\\")))
+            .unwrap_or_else(|| share.clone());
         let request = NetConnect {
             share,
             drive: self.letter,
@@ -389,7 +396,10 @@ impl NetDialog {
                 }
                 this.clear_password(cx);
                 match result {
-                    Ok(()) => cx.emit(NetDialogEvent::Connected),
+                    Ok(()) => cx.emit(NetDialogEvent::Connected {
+                        share: share_for_event,
+                        open,
+                    }),
                     Err(why) => {
                         this.error = Some(
                             if why.is_empty() {

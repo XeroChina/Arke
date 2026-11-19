@@ -393,14 +393,19 @@ impl Workspace {
         match event {
             NetDialogEvent::Closed => {}
             NetDialogEvent::UseSystemDialog => self.system_drive_dialog(true, window, cx),
-            NetDialogEvent::Connected => {
-                // Reload the sidebar drives and reopen the path in the tab that asked to log in.
+            NetDialogEvent::Connected { share, open } => {
+                // Reload the sidebar drives, remember the share in the Network list, and open it
+                // (a mapped drive when there is one, else the UNC path).
                 self.reload_all_places(cx);
-                if let Some((view, path)) = slot.after {
-                    view.update(cx, |v, cx| {
-                        v.navigate(path, arke_core::NavKind::New, cx);
-                    });
-                }
+                SettingsStore::global(cx).update(cx, |s, cx| {
+                    s.update(|st| st.remember_share(&share), cx);
+                });
+                let (view, path) = slot
+                    .after
+                    .unwrap_or_else(|| (self.active_view().clone(), open));
+                view.update(cx, |v, cx| {
+                    v.navigate(path, arke_core::NavKind::New, cx);
+                });
             }
             NetDialogEvent::RemoteConnected { place, save } => {
                 let url = place.url.clone();
