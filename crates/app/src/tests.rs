@@ -1823,6 +1823,10 @@ fn accent_hex_field_applies_complete_codes(cx: &mut TestAppContext) {
 /// background. Failures show in the dialog for editing; it closes only on success. The password
 /// never appears in debug output.
 #[gpui::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Tests connecting, saving a custom label, and renaming it inline end to end"
+)]
 fn network_drive_dialog_connects_in_the_background(cx: &mut TestAppContext) {
     use crate::net_dialog::NetDialogKind;
     let fs = FakeFs::new();
@@ -1882,11 +1886,45 @@ fn network_drive_dialog_connects_in_the_background(cx: &mut TestAppContext) {
 
     // Correct: connects and the dialog closes.
     dialog.update(cx, |d, cx| {
+        d.set_name_for_test("Home Media", cx);
         d.fill_for_test(r"\\nas\media", "bob", "secret", cx);
     });
     wait_for(cx, "dialog did not close", &|cx| {
         ws.update(cx, |ws, _| ws.net_dialog_for_test()).is_none()
     });
+    assert_eq!(
+        settings(cx).net_label(Path::new(r"\\nas\media")),
+        Some("Home Media")
+    );
+    assert_eq!(
+        settings(cx).net_label(Path::new(r"Z:\")),
+        Some("Home Media")
+    );
+    // Sidebar inline rename updates the custom name; Esc cancels, and the default name resets it.
+    cx.update(|window, cx| {
+        ws.update(cx, |ws, cx| {
+            ws.start_rename_place(PathBuf::from(r"\\nas\media"), window, cx);
+        });
+    });
+    cx.simulate_input("Movies");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(
+        settings(cx).net_label(Path::new(r"\\nas\media")),
+        Some("Movies")
+    );
+    cx.update(|window, cx| {
+        ws.update(cx, |ws, cx| {
+            ws.start_rename_place(PathBuf::from(r"\\nas\media"), window, cx);
+        });
+    });
+    cx.simulate_input("Ignored");
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(
+        settings(cx).net_label(Path::new(r"\\nas\media")),
+        Some("Movies")
+    );
     let requests = shell.net_connects.lock().clone();
     let last = requests.last().unwrap();
     assert_eq!(last.share, PathBuf::from(r"\\nas\media"));

@@ -155,7 +155,8 @@ impl Machine {
     /// Where the settings file is: the portable data folder, else `%APPDATA%\Arke\settings.json`.
     pub(crate) fn settings_file(&self) -> Option<PathBuf> {
         self.portable_data
-            .clone()
+            .as_ref()
+            .map(|dir| dir.join("settings.json"))
             .or_else(|| self.appdata.as_ref().map(|a| a.join("Arke").join("settings.json")))
     }
 }
@@ -915,10 +916,12 @@ mod tests {
                 Step::DeleteExe(PathBuf::from(r"C:\Tools\arke\Tools\arke.exe")),
             ]
         );
-        // Keeping the settings keeps that same folder.
-        assert!(plan(&m, true).contains(&Step::KeepSettings(PathBuf::from(
-            r"C:\Tools\arke\data"
-        ))));
+        // Keeping the settings keeps that same folder, and turns takeover off in its settings.json.
+        let kept = plan(&m, true);
+        assert!(kept.contains(&Step::KeepSettings(PathBuf::from(r"C:\Tools\arke\data"))));
+        assert!(kept.contains(&Step::RestoreFolderHandler {
+            settings: Some(PathBuf::from(r"C:\Tools\arke\data\settings.json")),
+        }));
         // Another copy staying does not keep this copy's own folder.
         m.others = vec![PathBuf::from(r"C:\Tools\other\arke.exe")];
         assert!(plan(&m, false).contains(&Step::DeleteSettings(PathBuf::from(

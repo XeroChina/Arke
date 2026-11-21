@@ -61,10 +61,10 @@ impl Credentials {
             .filter(|k| k.len() == KEY_LEN)
             .unwrap_or_else(|| {
                 let key = random_key();
-                if std::fs::create_dir_all(dir).is_ok() {
-                    if let Err(err) = std::fs::write(dir.join(KEY_FILE), &key) {
-                        log::warn!("cannot write the credential key: {err}");
-                    }
+                if std::fs::create_dir_all(dir).is_ok()
+                    && let Err(err) = std::fs::write(dir.join(KEY_FILE), &key)
+                {
+                    log::warn!("cannot write the credential key: {err}");
                 }
                 key
             });
@@ -163,7 +163,7 @@ fn target_key(share: &Path) -> String {
 
 fn random_key() -> Vec<u8> {
     use windows::Win32::Security::Cryptography::{
-        BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom,
     };
     let mut key = vec![0u8; KEY_LEN];
     // SAFETY: `key` is a valid writable buffer of the reported length.
@@ -190,7 +190,7 @@ fn encrypt(key: &[u8], plain: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
     let iv = {
         let mut iv = vec![0u8; IV_LEN];
         use windows::Win32::Security::Cryptography::{
-            BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom,
         };
         // SAFETY: `iv` is a valid writable buffer of the reported length.
         let status = unsafe { BCryptGenRandom(None, &mut iv, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
@@ -218,9 +218,9 @@ fn decrypt(key: &[u8], iv: &[u8], mac: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 
 fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
-        BCryptCloseAlgorithmProvider, BCryptDestroyKey, BCryptEncrypt,
-        BCryptGenerateSymmetricKey, BCryptOpenAlgorithmProvider, BCRYPT_AES_ALGORITHM,
-        BCRYPT_BLOCK_PADDING, BCRYPT_KEY_HANDLE, BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
+        BCRYPT_AES_ALGORITHM, BCRYPT_BLOCK_PADDING, BCRYPT_KEY_HANDLE,
+        BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS, BCryptCloseAlgorithmProvider, BCryptDestroyKey,
+        BCryptEncrypt, BCryptGenerateSymmetricKey, BCryptOpenAlgorithmProvider,
     };
     // SAFETY: all handles are closed and destroyed on every path; the buffers outlive the calls
     // and are valid for their reported lengths.
@@ -276,9 +276,9 @@ fn aes_cbc_encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 
 fn aes_cbc_decrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     use windows::Win32::Security::Cryptography::{
-        BCryptCloseAlgorithmProvider, BCryptDecrypt, BCryptDestroyKey, BCryptGenerateSymmetricKey,
-        BCryptOpenAlgorithmProvider, BCRYPT_AES_ALGORITHM, BCRYPT_BLOCK_PADDING,
-        BCRYPT_KEY_HANDLE, BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
+        BCRYPT_AES_ALGORITHM, BCRYPT_BLOCK_PADDING, BCRYPT_KEY_HANDLE,
+        BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS, BCryptCloseAlgorithmProvider, BCryptDecrypt,
+        BCryptDestroyKey, BCryptGenerateSymmetricKey, BCryptOpenAlgorithmProvider,
     };
     // SAFETY: all handles are closed and destroyed on every path; the buffers outlive the calls
     // and are valid for their reported lengths.

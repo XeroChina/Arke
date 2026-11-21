@@ -68,6 +68,8 @@ pub(super) enum SidebarAction {
     ForgetShare(PathBuf),
     /// Remove a saved SFTP/WebDAV location (and its saved password).
     ForgetRemote(PathBuf),
+    /// Rename a network location in the sidebar.
+    RenameLocation(PathBuf),
     /// Add to or remove from global search's network locations.
     ToggleSearchNetwork(PathBuf),
     /// Window menu (right click on the title bar).
@@ -471,6 +473,7 @@ impl Workspace {
     /// Favorite tiles: the user's list, or six common folders by default.
     pub(super) fn favorites(&self, cx: &mut Context<Self>) -> Vec<(PathBuf, String, Icon)> {
         let places = self.active_view().read(cx).places.clone();
+        let settings = SettingsStore::global(cx).read(cx).settings.clone();
         let icon_for = |path: &Path| {
             match places.iter().find(|p| p.path == path) {
                 Some(p) => place_icon(p.kind),
@@ -481,14 +484,15 @@ impl Workspace {
             }
         };
         let label_for = |path: &Path| {
+            if let Some(custom) = settings.net_label(path) {
+                return custom.to_owned();
+            }
             places
                 .iter()
                 .find(|p| p.path == path)
                 .map_or_else(|| display_name(path), |p| p.label.clone())
         };
-        SettingsStore::global(cx)
-            .read(cx)
-            .settings
+        settings
             .tiles(&places)
             .into_iter()
             .map(|p| {
@@ -519,9 +523,14 @@ impl Workspace {
         let mut pinned_rows = Vec::new();
         for (ix, path) in pinned.iter().enumerate() {
             let row_at = pinned_rows.len();
+            let label = SettingsStore::global(cx)
+                .read(cx)
+                .settings
+                .net_label(path)
+                .map_or_else(|| display_name(path), str::to_owned);
             self.render_tree(
                 path,
-                display_name(path),
+                label,
                 None,
                 None,
                 0,
@@ -766,9 +775,14 @@ impl Workspace {
             .clone();
         shares.sort_by_cached_key(|s| s.to_string_lossy().to_lowercase());
         for share in &shares {
+            let label = SettingsStore::global(cx)
+                .read(cx)
+                .settings
+                .net_label(share)
+                .map_or_else(|| share_label(share), str::to_owned);
             self.render_tree(
                 share,
-                share_label(share),
+                label,
                 None,
                 Some(Icon::NetDrive),
                 0,
@@ -786,9 +800,14 @@ impl Workspace {
             .map(|p| p.url.clone())
             .collect();
         for url in &remotes {
+            let label = SettingsStore::global(cx)
+                .read(cx)
+                .settings
+                .net_label(url)
+                .map_or_else(|| remote_label(url), str::to_owned);
             self.render_tree(
                 url,
-                remote_label(url),
+                label,
                 None,
                 Some(Icon::NetDrive),
                 0,
@@ -817,12 +836,19 @@ impl Workspace {
             return items;
         }
         let net_place = settings.net_places.iter().any(|p| p == path);
+        let remote_place = settings.remote_places.iter().any(|p| p.url == path);
         let mapped = self
             .active_view()
             .read(cx)
             .places
             .iter()
             .any(|p| p.path == path && matches!(p.kind, PlaceKind::Drive { remote: true, .. }));
+        if mapped || net_place || remote_place {
+            items.push((
+                t!("sidebar.rename_location").to_string().into(),
+                SidebarAction::RenameLocation(path.to_path_buf()),
+            ));
+        }
         if mapped {
             items.push((
                 t!("sidebar.disconnect_drive").to_string().into(),
@@ -864,7 +890,7 @@ impl Workspace {
                 SidebarAction::ForgetShare(path.to_path_buf()),
             ));
         }
-        if settings.remote_places.iter().any(|p| p.url == path) {
+        if remote_place {
             items.push((
                 t!("sidebar.forget_share").to_string().into(),
                 SidebarAction::ForgetRemote(path.to_path_buf()),
@@ -1045,9 +1071,14 @@ impl Workspace {
                 used: used.clamp(0., 1.),
             }
         });
+        let label = SettingsStore::global(cx)
+            .read(cx)
+            .settings
+            .net_label(&place.path)
+            .map_or_else(|| place.label.clone(), str::to_owned);
         self.render_tree(
             &place.path,
-            place.label.clone(),
+            label,
             space,
             Some(icon),
             0,
@@ -1060,7 +1091,8 @@ impl Workspace {
     /// An expandable folder; renders subfolders recursively when open.
     #[allow(
         clippy::too_many_arguments,
-        reason = "a tree row needs its place, depth and state"
+        clippy::too_many_lines,
+        reason = "a tree row needs its place, depth and state, with its rename box and children"
     )]
     fn render_tree(
         &self,
@@ -1088,53 +1120,89 @@ impl Workspace {
         let tab_path = path.to_path_buf();
         let menu = self.tree_menu(path, depth, cx);
         let indent = INDENT * depth as f32;
-        out.push(
-            div()
-                .id(SharedString::from(format!(
-                    "tree-{depth}-{}",
-                    path.display()
-                )))
-                .a11y_lazy(gpui::Role::TreeItem, || label.clone())
-                .aria_level(depth)
-                .aria_selected(here)
-                .when(!leaf, |d| d.aria_expanded(expanded))
-                .relative()
-                .h(theme::H_ROW)
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(theme::S_4)
-                .pl(indent + theme::S_4)
-                .pr(theme::S_8)
-                .rounded(theme::R_8)
-                .cursor_pointer()
-                // Current location: neutral wash.
-                .when(here, |d| d.bg(theme::selection()))
-                .when(!here, |d| d.hover(|s| s.bg(theme::wash())))
-                .child(Self::tree_chevron(path, depth, expanded, leaf, cue, cx))
-                .child(match icon {
-                    Some(icon) => crate::assets::tinted(icon, theme::ICON, theme::text_muted()),
-                    None => kind_icon(FileKind::Folder, theme::ICON),
-                })
-                .child(tree_label(label, space))
-                .with_file_drop(path.to_path_buf(), cx)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.navigate_active(open.clone(), window, cx);
-                }))
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                        this.open_in_background(tab_path.clone(), window, cx);
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, e: &MouseDownEvent, _, cx| {
-                        this.open_sidebar_menu(e.position, menu.clone(), cx);
-                    }),
-                )
-                .into_any_element(),
-        );
+        let renaming = (depth == 0)
+            .then(|| {
+                self.renaming_place
+                    .as_ref()
+                    .filter(|(p, _, _)| p == path)
+                    .map(|(_, input, _)| input.clone())
+            })
+            .flatten();
+        if let Some(input) = renaming {
+            out.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "tree-{depth}-{}",
+                        path.display()
+                    )))
+                    .h(theme::H_ROW)
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(theme::S_4)
+                    .pl(indent + theme::S_4)
+                    .pr(theme::S_8)
+                    .rounded(theme::R_8)
+                    .bg(theme::surface())
+                    .border_1()
+                    .border_color(theme::signal_line())
+                    .child(Self::tree_chevron(path, depth, expanded, leaf, cue, cx))
+                    .child(match icon {
+                        Some(icon) => crate::assets::tinted(icon, theme::ICON, theme::text_muted()),
+                        None => kind_icon(FileKind::Folder, theme::ICON),
+                    })
+                    .child(div().flex_1().min_w_0().pl(theme::S_4).child(input))
+                    .into_any_element(),
+            );
+        } else {
+            out.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "tree-{depth}-{}",
+                        path.display()
+                    )))
+                    .a11y_lazy(gpui::Role::TreeItem, || label.clone())
+                    .aria_level(depth)
+                    .aria_selected(here)
+                    .when(!leaf, |d| d.aria_expanded(expanded))
+                    .relative()
+                    .h(theme::H_ROW)
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(theme::S_4)
+                    .pl(indent + theme::S_4)
+                    .pr(theme::S_8)
+                    .rounded(theme::R_8)
+                    .cursor_pointer()
+                    // Current location: neutral wash.
+                    .when(here, |d| d.bg(theme::selection()))
+                    .when(!here, |d| d.hover(|s| s.bg(theme::wash())))
+                    .child(Self::tree_chevron(path, depth, expanded, leaf, cue, cx))
+                    .child(match icon {
+                        Some(icon) => crate::assets::tinted(icon, theme::ICON, theme::text_muted()),
+                        None => kind_icon(FileKind::Folder, theme::ICON),
+                    })
+                    .child(tree_label(label, space))
+                    .with_file_drop(path.to_path_buf(), cx)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.navigate_active(open.clone(), window, cx);
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Middle,
+                        cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                            this.open_in_background(tab_path.clone(), window, cx);
+                        }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            this.open_sidebar_menu(e.position, menu.clone(), cx);
+                        }),
+                    )
+                    .into_any_element(),
+            );
+        }
         if !expanded {
             return;
         }
@@ -1324,6 +1392,87 @@ impl Workspace {
         }
     }
 
+    fn default_net_label(&self, path: &Path, cx: &App) -> String {
+        if let Some(place) = self
+            .active_view()
+            .read(cx)
+            .places
+            .iter()
+            .find(|p| p.path == path)
+        {
+            return place.label.clone();
+        }
+        if arke_core::remote::is_remote(path) {
+            return remote_label(path);
+        }
+        share_label(path)
+    }
+
+    pub(crate) fn start_rename_place(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::text_input::{InputEvent, TextInput};
+        use gpui::Focusable as _;
+        let default = self.default_net_label(&path, cx);
+        let current = SettingsStore::global(cx)
+            .read(cx)
+            .settings
+            .net_label(&path)
+            .map_or_else(|| default.clone(), str::to_owned);
+        let input = cx.new(|cx| {
+            let mut input = TextInput::new(default, cx);
+            input.set_text(current, cx);
+            input.select_all_text(cx);
+            input
+        });
+        let focus = input.read(cx).focus_handle(cx);
+        let subscriptions = [
+            cx.subscribe_in(&input, window, |this, _, event, window, cx| match event {
+                InputEvent::Confirm => this.finish_rename_place(window, cx),
+                InputEvent::Cancel => this.cancel_rename_place(window, cx),
+                InputEvent::Changed => {}
+            }),
+            cx.on_blur(&focus, window, |this, window, cx| {
+                this.finish_rename_place(window, cx);
+            }),
+        ];
+        self.renaming_place = Some((path, input, subscriptions));
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    fn finish_rename_place(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, input, _)) = self.renaming_place.take() else {
+            return;
+        };
+        let typed = input.read(cx).committed_text();
+        let default = self.default_net_label(&path, cx);
+        let name = if crate::saved_workspaces::clean_name(&typed) == default {
+            ""
+        } else {
+            &typed
+        };
+        SettingsStore::global(cx).update(cx, |s, cx| {
+            s.update(|st| st.set_net_label(&path, name), cx);
+        });
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    fn cancel_rename_place(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.renaming_place.take().is_some() {
+            self.focus_active(window, cx);
+            cx.notify();
+        }
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one match arm per sidebar context menu action"
+    )]
     fn run_sidebar_action(
         &mut self,
         action: SidebarAction,
@@ -1417,6 +1566,7 @@ impl Workspace {
                 crate::net_creds::remove(&share);
             }
             SidebarAction::ForgetRemote(url) => self.forget_remote(&url, cx),
+            SidebarAction::RenameLocation(path) => self.start_rename_place(path, window, cx),
             SidebarAction::WindowMinimize => window.minimize_window(),
             SidebarAction::WindowMaximize => window.zoom_window(),
             SidebarAction::WindowRestore => {

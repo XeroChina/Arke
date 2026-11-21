@@ -2354,6 +2354,14 @@ net.folder:
   en: Folder
   zh-TW: 資料夾
   zh-CN: 文件夹
+net.name_optional:
+  en: Name in sidebar (optional)
+  zh-TW: 側邊欄名稱（選填）
+  zh-CN: 侧边栏名称（可选）
+net.name_hint:
+  en: Leave empty to use the address
+  zh-TW: 留空則顯示位址
+  zh-CN: 留空则显示地址
 net.letter:
   en: Drive letter
   zh-TW: 磁碟機代號
@@ -3397,6 +3405,10 @@ sidebar.disconnect_drive:
   en: Disconnect network drive…
   zh-TW: "中斷網路磁碟機連線…"
   zh-CN: 断开网络驱动器…
+sidebar.rename_location:
+  en: Rename…
+  zh-TW: 重新命名…
+  zh-CN: 重命名…
 sidebar.forget_share:
   en: Remove from this list
   zh-TW: 從清單移除

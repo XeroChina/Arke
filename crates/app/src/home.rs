@@ -588,16 +588,33 @@ impl Render for HomePage {
                 cx,
             ));
         }
-        // Network: mapped drives and recently opened shares
+        // Network: mapped drives, recently opened shares and saved remote locations
+        let settings = &SettingsStore::global(cx).read(cx).settings;
         let mut net: Vec<(String, PathBuf)> = self
             .places
             .iter()
             .filter(|p| matches!(p.kind, PlaceKind::Drive { remote: true, .. }))
-            .map(|p| (p.label.clone(), p.path.clone()))
+            .map(|p| {
+                let label = settings
+                    .net_label(&p.path)
+                    .map_or_else(|| p.label.clone(), str::to_owned);
+                (label, p.path.clone())
+            })
             .collect();
         for share in &self.shares {
             if !net.iter().any(|(_, p)| p == share) {
-                net.push((share.display().to_string(), share.clone()));
+                let label = settings
+                    .net_label(share)
+                    .map_or_else(|| share.display().to_string(), str::to_owned);
+                net.push((label, share.clone()));
+            }
+        }
+        for remote in &settings.remote_places {
+            if !net.iter().any(|(_, p)| p == &remote.url) {
+                let label = settings
+                    .net_label(&remote.url)
+                    .map_or_else(|| remote.url.display().to_string(), str::to_owned);
+                net.push((label, remote.url.clone()));
             }
         }
         let net: Vec<AnyElement> = net

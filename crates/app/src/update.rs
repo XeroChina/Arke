@@ -734,8 +734,10 @@ pub(crate) fn channel_changed(channel: Channel, cx: &mut App) {
         .read(cx)
         .settings
         .update_auto;
-    let can_check =
-        UPDATES_ENABLED && auto && !build_info::RELEASES_REPO.is_empty() && package_manager().is_none();
+    let can_check = UPDATES_ENABLED
+        && auto
+        && !build_info::RELEASES_REPO.is_empty()
+        && package_manager().is_none();
     match on_channel_change(&UpdateState::get(cx), can_check) {
         OnChannelChange::Keep => {}
         OnChannelChange::Forget => UpdateState::set(cx, UpdateState::Idle),

@@ -278,6 +278,14 @@ impl SortBy {
     }
 }
 
+/// A custom display name for a network location (share, mapped drive, SFTP or WebDAV).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetLabel {
+    pub(crate) path: PathBuf,
+    pub(crate) name: String,
+}
+
 /// A saved SFTP or WebDAV location.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -419,6 +427,8 @@ pub(crate) struct Settings {
     pub(crate) search_excluded: Vec<PathBuf>,
     /// Recently opened network shares (`\\server\share`), newest first (sidebar Network section).
     pub(crate) net_places: Vec<PathBuf>,
+    /// Custom names given to network locations (shares, mapped drives, SFTP or WebDAV).
+    pub(crate) net_labels: Vec<NetLabel>,
     /// Saved SFTP and WebDAV locations (sidebar Network section). Never holds a password: those
     /// stay in Windows Credential Manager.
     pub(crate) remote_places: Vec<RemotePlace>,
@@ -572,6 +582,7 @@ impl Default for Settings {
             search_skip_build_dirs: false,
             search_history: true,
             net_places: Vec::new(),
+            net_labels: Vec::new(),
             remote_places: Vec::new(),
             theme: ThemeMode::default(),
             accent: Accent::default(),
@@ -686,6 +697,28 @@ impl Settings {
 
     pub(crate) fn forget_share(&mut self, share: &Path) {
         self.net_places.retain(|p| p != share);
+        self.set_net_label(share, "");
+    }
+
+    /// Custom name of a network location, if one was set.
+    pub(crate) fn net_label(&self, path: &Path) -> Option<&str> {
+        self.net_labels
+            .iter()
+            .find(|l| crate::global_search::same_path(&l.path, path))
+            .map(|l| l.name.as_str())
+    }
+
+    /// Sets (or clears when empty) the custom name of a network location.
+    pub(crate) fn set_net_label(&mut self, path: &Path, name: &str) {
+        let name = crate::saved_workspaces::clean_name(name);
+        self.net_labels
+            .retain(|l| !crate::global_search::same_path(&l.path, path));
+        if !name.is_empty() {
+            self.net_labels.push(NetLabel {
+                path: path.to_path_buf(),
+                name,
+            });
+        }
     }
 
     /// Adds or updates a saved remote location (same URL replaces), newest first.
@@ -696,6 +729,7 @@ impl Settings {
 
     pub(crate) fn forget_remote_place(&mut self, url: &Path) {
         self.remote_places.retain(|p| p.url != url);
+        self.set_net_label(url, "");
     }
 
     /// Folders on the tiles: the custom list, or the known folders (excluding the profile folder itself).
@@ -1466,8 +1500,11 @@ mod tests {
         }
         assert_eq!(s.net_places.len(), NET_PLACES_MAX);
         assert!(s.net_places.contains(&PathBuf::from(r"\\server9\share")));
+        s.set_net_label(Path::new(r"\\server9\share"), "  My NAS  ");
+        assert_eq!(s.net_label(Path::new(r"\\SERVER9\SHARE\")), Some("My NAS"));
         s.forget_share(Path::new(r"\\server9\share"));
         assert!(!s.net_places.contains(&PathBuf::from(r"\\server9\share")));
+        assert_eq!(s.net_label(Path::new(r"\\server9\share")), None);
     }
 
     #[test]

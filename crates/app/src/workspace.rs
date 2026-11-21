@@ -302,6 +302,8 @@ pub(crate) struct Workspace {
     tree_children: HashMap<PathBuf, sidebar::TreeChildren>,
     /// Folders a background check found to have no subfolders (no chevron in the tree).
     tree_leaf: HashSet<PathBuf>,
+    /// Network location being renamed in the sidebar: its path, the input and its events.
+    renaming_place: Option<(PathBuf, Entity<crate::text_input::TextInput>, [Subscription; 2])>,
     sidebar_menu: Option<sidebar::SidebarMenu>,
     pub(crate) palette: Option<(Entity<LocationPalette>, Subscription)>,
     /// The dismissed palette fading out (see `motion::Leaving`).
@@ -393,26 +395,48 @@ impl Workspace {
         match event {
             NetDialogEvent::Closed => {}
             NetDialogEvent::UseSystemDialog => self.system_drive_dialog(true, window, cx),
-            NetDialogEvent::Connected { share, open } => {
+            NetDialogEvent::Connected { share, open, name } => {
                 // Reload the sidebar drives, remember the share in the Network list, and open it
                 // (a mapped drive when there is one, else the UNC path).
                 self.reload_all_places(cx);
+                let name = name.clone();
+                let open_for_label = open.clone();
                 SettingsStore::global(cx).update(cx, |s, cx| {
-                    s.update(|st| st.remember_share(&share), cx);
+                    s.update(
+                        |st| {
+                            st.remember_share(&share);
+                            if let Some(name) = &name {
+                                st.set_net_label(&share, name);
+                                if open_for_label != *share {
+                                    st.set_net_label(&open_for_label, name);
+                                }
+                            }
+                        },
+                        cx,
+                    );
                 });
                 let (view, path) = slot
                     .after
-                    .unwrap_or_else(|| (self.active_view().clone(), open.to_path_buf()));
+                    .unwrap_or_else(|| (self.active_view().clone(), open.clone()));
                 view.update(cx, |v, cx| {
                     v.navigate(path, arke_core::NavKind::New, cx);
                 });
             }
-            NetDialogEvent::RemoteConnected { place, save } => {
+            NetDialogEvent::RemoteConnected { place, save, name } => {
                 let url = place.url.clone();
                 if *save {
                     let place = place.clone();
+                    let name = name.clone();
                     SettingsStore::global(cx).update(cx, |s, cx| {
-                        s.update(|st| st.save_remote_place(place), cx);
+                        s.update(
+                            |st| {
+                                if let Some(name) = &name {
+                                    st.set_net_label(&place.url, name);
+                                }
+                                st.save_remote_place(place);
+                            },
+                            cx,
+                        );
                     });
                 } else {
                     // Signed in again: keep the saved location's key file up to date.
@@ -609,6 +633,7 @@ impl Workspace {
             tree_cue: (None, crate::motion::Cue::default()),
             tree_children: HashMap::new(),
             tree_leaf: HashSet::new(),
+            renaming_place: None,
             sidebar_menu: None,
             palette: None,
             closing_palette: None,
@@ -1674,11 +1699,40 @@ impl Workspace {
                 Source::Recent,
             );
         }
+        let settings = SettingsStore::global(cx).read(cx).settings.clone();
         for place in &self.active_view().read(cx).places {
+            let label = match settings.net_label(&place.path) {
+                Some(name) => format!("{}\\{name}", place.path.display()),
+                None => place.path.display().to_string(),
+            };
             push(
-                place.path.display().to_string(),
+                label,
                 Some(sidebar::place_icon(place.kind)),
                 Target::Path(place.path.clone()),
+                Source::Place,
+            );
+        }
+        for share in &settings.net_places {
+            let label = match settings.net_label(share) {
+                Some(name) => format!("{}\\{name}", share.display()),
+                None => share.display().to_string(),
+            };
+            push(
+                label,
+                Some(crate::assets::Icon::NetDrive),
+                Target::Path(share.clone()),
+                Source::Place,
+            );
+        }
+        for remote in &settings.remote_places {
+            let label = match settings.net_label(&remote.url) {
+                Some(name) => format!("{}/{name}", remote.url.display()),
+                None => remote.url.display().to_string(),
+            };
+            push(
+                label,
+                Some(crate::assets::Icon::NetDrive),
+                Target::Path(remote.url.clone()),
                 Source::Place,
             );
         }

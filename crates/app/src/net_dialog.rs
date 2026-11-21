@@ -61,9 +61,17 @@ pub(crate) enum NetDialogKind {
 pub(crate) enum NetDialogEvent {
     /// Connected to a share. `share` is the UNC root, saved to the sidebar's Network list; `open`
     /// is where to go next: the mapped drive, or the UNC path when no letter was taken.
-    Connected { share: PathBuf, open: PathBuf },
+    Connected {
+        share: PathBuf,
+        open: PathBuf,
+        name: Option<String>,
+    },
     /// Connected to an SFTP or WebDAV server; `save` adds it to the sidebar.
-    RemoteConnected { place: RemotePlace, save: bool },
+    RemoteConnected {
+        place: RemotePlace,
+        save: bool,
+        name: Option<String>,
+    },
     /// Canceled or closed
     Closed,
     /// Use the Windows "Map network drive" dialog instead
@@ -90,6 +98,7 @@ pub(crate) struct NetDialog {
     shell: Arc<dyn Shell>,
     remotes: Arc<Remotes>,
     focus: FocusHandle,
+    name: Entity<TextInput>,
     folder: Entity<TextInput>,
     host: Entity<TextInput>,
     port: Entity<TextInput>,
@@ -118,6 +127,7 @@ impl NetDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let name = cx.new(|cx| TextInput::new(t!("net.name_hint").to_string(), cx));
         let folder = cx.new(|cx| TextInput::new(r"\\server\share", cx));
         let host = cx.new(|cx| TextInput::new(t!("net.host_hint").to_string(), cx));
         let port = cx.new(|cx| TextInput::new("22", cx));
@@ -129,7 +139,7 @@ impl NetDialog {
             input.set_masked(true, cx);
             input
         });
-        let inputs = [&folder, &host, &port, &path, &key_file, &user, &password]
+        let inputs = [&name, &folder, &host, &port, &path, &key_file, &user, &password]
             .into_iter()
             .map(|input| cx.subscribe_in(input, window, Self::on_input))
             .collect();
@@ -177,6 +187,7 @@ impl NetDialog {
             shell,
             remotes,
             focus: cx.focus_handle(),
+            name,
             folder,
             host,
             port,
@@ -366,6 +377,9 @@ impl NetDialog {
             .letter
             .map(|letter| PathBuf::from(format!("{letter}:\\")))
             .unwrap_or_else(|| share.clone());
+        let name = matches!(self.kind, NetDialogKind::Map { .. })
+            .then(|| crate::saved_workspaces::clean_name(&self.name.read(cx).committed_text()))
+            .filter(|n| !n.is_empty());
         let request = NetConnect {
             share,
             drive: self.letter,
@@ -399,6 +413,7 @@ impl NetDialog {
                     Ok(()) => cx.emit(NetDialogEvent::Connected {
                         share: share_for_event,
                         open,
+                        name,
                     }),
                     Err(why) => {
                         this.error = Some(
@@ -469,6 +484,9 @@ impl NetDialog {
             let _ = tx.send(remotes.sign_in(&target, secret, remember));
         });
         let save = matches!(self.kind, NetDialogKind::Map { .. });
+        let name = save
+            .then(|| crate::saved_workspaces::clean_name(&self.name.read(cx).committed_text()))
+            .filter(|n| !n.is_empty());
         cx.spawn(async move |this, cx| {
             let result = rx
                 .recv_async()
@@ -491,6 +509,7 @@ impl NetDialog {
                                 key_file,
                             },
                             save,
+                            name,
                         });
                     }
                     Err(RemoteError::HostKeyUnknown(key)) => {
@@ -508,6 +527,12 @@ impl NetDialog {
             });
         })
         .detach();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_name_for_test(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.name
+            .update(cx, |i, cx| i.set_text(name.to_owned(), cx));
     }
 
     #[cfg(test)]
@@ -737,6 +762,8 @@ impl NetDialog {
             .when(is_map, |d| {
                 d.child(label(t!("net.folder").into_owned()))
                     .child(field(&self.folder, window, cx))
+                    .child(label(t!("net.name_optional").into_owned()))
+                    .child(field(&self.name, window, cx))
                     .child(label(t!("net.letter").into_owned()))
                     .child(div().flex().flex_wrap().gap(theme::S_4).children(
                         // First choice: no letter, so the share is reached by its UNC path only.
@@ -802,6 +829,10 @@ impl NetDialog {
                 .child(labeled(
                     t!("net.remote_path").into_owned(),
                     field(&self.path, window, cx),
+                ))
+                .child(labeled(
+                    t!("net.name_optional").into_owned(),
+                    field(&self.name, window, cx),
                 ))
             })
             .child(labeled(
