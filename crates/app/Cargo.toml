@@ -68,6 +68,8 @@ features = [
     "Win32_Security_Authorization",
     # Saved network credentials go to Windows Credential Manager
     "Win32_Security_Credentials",
+    # Arke's own credential store: AES-CBC + HMAC through CNG
+    "Win32_Security_Cryptography",
     # Jump list titles (PKEY_Title)
     "Win32_Storage_EnhancedStorage",
     "Win32_Storage_FileSystem",

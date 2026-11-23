@@ -1,3 +1,6 @@
 # Release settings read by `cargo xtask`.
 # repo: GitHub repo (owner/name) that hosts releases; builds check it for updates.
-repo = "Koimsurai/Arke"
+# This fork keeps its own releases here; update checks are off (`update::UPDATES_ENABLED`).
+repo = "XeroChina/Arke"
+# Optional fourth version segment appended to the Cargo.toml version for fork releases (e.g. 0.8.1.1).
+revision = 1

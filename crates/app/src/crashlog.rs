@@ -59,7 +59,7 @@ pub(crate) fn init() {
         builder.filter_module("lopdf", log::LevelFilter::Off);
     }
     let to_file = !cfg!(debug_assertions) && std::env::var_os("ARKE_LOG_STDERR").is_none();
-    let dir = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Arke"));
+    let dir = crate::paths::cache_dir();
     if to_file && let Some(dir) = dir {
         let path = dir.join("arke.log");
         let (tx, rx) = flume::unbounded::<Vec<u8>>();

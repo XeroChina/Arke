@@ -3597,6 +3597,7 @@ impl Workspace {
                 SettingsStore::global(cx).update(cx, |s, cx| {
                     s.update(|st| st.forget_share(&share), cx);
                 });
+                crate::net_creds::remove(&share);
             }
             SidebarAction::ForgetRemote(url) => self.forget_remote(&url, cx),
             SidebarAction::RequireSecure(url) => {

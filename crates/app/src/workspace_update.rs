@@ -87,7 +87,7 @@ fn body(
             ))
             .into_any_element();
     }
-    let no_source = build_info::RELEASES_REPO.is_empty();
+    let no_source = build_info::RELEASES_REPO.is_empty() || !update::UPDATES_ENABLED;
     let current = s.update_channel();
     let channel = choice_with(
         "update-channel",

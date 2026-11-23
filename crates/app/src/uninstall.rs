@@ -82,6 +82,9 @@ pub(crate) struct Machine {
     pub(crate) exe: PathBuf,
     pub(crate) appdata: Option<PathBuf>,
     pub(crate) local_appdata: Option<PathBuf>,
+    /// Portable copy (`portable` next to the exe, see `paths.rs`): every data file lives in this
+    /// one folder, and the profile folders hold nothing but the shortcuts.
+    pub(crate) portable_data: Option<PathBuf>,
     /// The package manager that owns the exe.
     pub(crate) manager: Option<PackageManager>,
     /// The installer put the exe here (`installer/arke.iss`); its uninstaller removes it.
@@ -140,12 +143,25 @@ impl Machine {
             },
             appdata,
             local_appdata: env("LOCALAPPDATA"),
+            portable_data: crate::paths::portable_data_dir(),
             manager: crate::update::package_manager(),
             setup: crate::update::installed_by_setup(),
             service: service && !sandbox,
             sandbox,
             exe,
         })
+    }
+
+    /// Where the settings file is: the portable data folder, else `%APPDATA%\Arke\settings.json`.
+    pub(crate) fn settings_file(&self) -> Option<PathBuf> {
+        self.portable_data
+            .as_ref()
+            .map(|dir| dir.join("settings.json"))
+            .or_else(|| {
+                self.appdata
+                    .as_ref()
+                    .map(|a| a.join("Arke").join("settings.json"))
+            })
     }
 }
 
@@ -284,7 +300,7 @@ pub(crate) enum Step {
 /// The steps for this PC, in order.
 pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
     if let Some(other) = m.others.first() {
-        return plan_with_other_copy(m, other);
+        return plan_with_other_copy(m, other, keep_settings);
     }
     let arke = |base: &PathBuf| base.join("Arke");
     let mut steps = vec![Step::QuitArke];
@@ -292,11 +308,7 @@ pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
         steps.push(Step::RemoveService);
     }
     steps.push(Step::RestoreFolderHandler {
-        settings: m
-            .appdata
-            .as_ref()
-            .filter(|_| keep_settings)
-            .map(|a| arke(a).join("settings.json")),
+        settings: m.settings_file().filter(|_| keep_settings),
     });
     if let Some(appdata) = &m.appdata {
         // The installer's own Start menu shortcut goes with its uninstaller.
@@ -315,15 +327,25 @@ pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
         steps.push(Step::ForgetPasswords);
         steps.push(Step::ClearJumpList);
     }
-    if let Some(local) = &m.local_appdata {
-        steps.push(Step::DeleteData(arke(local)));
-    }
-    if let Some(appdata) = &m.appdata {
+    if let Some(data) = &m.portable_data {
+        // Portable copy: one folder beside the exe holds everything, the profile folders hold none
+        // of it.
         steps.push(if keep_settings {
-            Step::KeepSettings(arke(appdata))
+            Step::KeepSettings(data.clone())
         } else {
-            Step::DeleteSettings(arke(appdata))
+            Step::DeleteSettings(data.clone())
         });
+    } else {
+        if let Some(local) = &m.local_appdata {
+            steps.push(Step::DeleteData(arke(local)));
+        }
+        if let Some(appdata) = &m.appdata {
+            steps.push(if keep_settings {
+                Step::KeepSettings(arke(appdata))
+            } else {
+                Step::DeleteSettings(arke(appdata))
+            });
+        }
     }
     steps.push(match m.manager {
         Some(manager) => Step::KeepExe(manager),
@@ -334,16 +356,13 @@ pub(crate) fn plan(m: &Machine, keep_settings: bool) -> Vec<Step> {
 }
 
 /// [`plan`] while `other` (another copy of Arke) stays: only this copy and what points at it go.
-fn plan_with_other_copy(m: &Machine, other: &Path) -> Vec<Step> {
+fn plan_with_other_copy(m: &Machine, other: &Path, keep_settings: bool) -> Vec<Step> {
     let mut steps = vec![Step::QuitArke, Step::KeepShared(other.to_path_buf())];
     if m.ours.folder_handler {
         // Folders go back to File Explorer, so the shared setting reads off; the other copy can
         // turn it on again for itself.
         steps.push(Step::RestoreFolderHandler {
-            settings: m
-                .appdata
-                .as_ref()
-                .map(|a| a.join("Arke").join("settings.json")),
+            settings: m.settings_file(),
         });
     }
     if let Some(appdata) = &m.appdata {
@@ -360,6 +379,14 @@ fn plan_with_other_copy(m: &Machine, other: &Path) -> Vec<Step> {
                 crate::win::autostart_shortcut(appdata),
             ));
         }
+    }
+    // The portable data folder belongs to this copy alone, so it goes with it.
+    if let Some(data) = &m.portable_data {
+        steps.push(if keep_settings {
+            Step::KeepSettings(data.clone())
+        } else {
+            Step::DeleteSettings(data.clone())
+        });
     }
     steps.push(match m.manager {
         Some(manager) => Step::KeepExe(manager),
@@ -378,13 +405,16 @@ pub(crate) enum Refused {
 }
 
 /// Checks that `folder` is Arke's own: `<base>\Arke`, where `base` is an absolute folder below a
-/// drive root and not the folder holding user profiles (`C:\Users`).
+/// drive root and not the folder holding user profiles (`C:\Users`); or the portable data folder
+/// beside the exe (`paths.rs`).
 pub(crate) fn check_folder(folder: &Path) -> Result<(), Refused> {
     let refuse = || Refused::NotArke(folder.to_path_buf());
     let named_arke = folder
         .file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|n| n.eq_ignore_ascii_case("Arke"));
+    let portable_data = crate::paths::portable_data_dir()
+        .is_some_and(|data| crate::global_search::same_path(&data, folder));
     let base = folder.parent().ok_or_else(refuse)?;
     let base_is_root = base.parent().is_none();
     let base_holds_profiles = base
@@ -393,7 +423,12 @@ pub(crate) fn check_folder(folder: &Path) -> Result<(), Refused> {
         .is_some_and(|n| n.eq_ignore_ascii_case("Users"));
     let is_profile = std::env::var_os("USERPROFILE")
         .is_some_and(|p| crate::global_search::same_path(Path::new(&p), folder));
-    if !folder.is_absolute() || !named_arke || base_is_root || base_holds_profiles || is_profile {
+    if !folder.is_absolute()
+        || (!named_arke && !portable_data)
+        || base_is_root
+        || base_holds_profiles
+        || is_profile
+    {
         return Err(refuse());
     }
     Ok(())
@@ -810,6 +845,7 @@ mod tests {
             exe: root.join("Tools").join("arke.exe"),
             appdata: Some(root.join("Roaming")),
             local_appdata: Some(root.join("Local")),
+            portable_data: None,
             manager: None,
             setup: false,
             service: false,
@@ -870,6 +906,50 @@ mod tests {
                 Step::DeleteExe(PathBuf::from(r"C:\Users\me\AppData\Tools\arke.exe")),
             ]
         );
+    }
+
+    /// A portable copy (`portable` next to the exe) keeps every data file in one folder beside the
+    /// exe, so that is the only data folder the uninstall touches; the profile folders stay.
+    #[test]
+    fn a_portable_copy_deletes_only_the_folder_beside_the_exe() {
+        let root = Path::new(r"C:\Tools\arke");
+        let mut m = machine(root);
+        m.portable_data = Some(root.join("data"));
+        let steps = plan(&m, false);
+        assert_eq!(
+            steps,
+            vec![
+                Step::QuitArke,
+                Step::RestoreFolderHandler { settings: None },
+                Step::DeleteShortcut(
+                    Shortcut::StartMenu,
+                    PathBuf::from(
+                        r"C:\Tools\arke\Roaming\Microsoft\Windows\Start Menu\Programs\Arke.lnk"
+                    )
+                ),
+                Step::DeleteShortcut(
+                    Shortcut::Startup,
+                    PathBuf::from(
+                        r"C:\Tools\arke\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Arke.lnk"
+                    )
+                ),
+                Step::ForgetPasswords,
+                Step::ClearJumpList,
+                Step::DeleteSettings(PathBuf::from(r"C:\Tools\arke\data")),
+                Step::DeleteExe(PathBuf::from(r"C:\Tools\arke\Tools\arke.exe")),
+            ]
+        );
+        // Keeping the settings keeps that same folder, and turns takeover off in its settings.json.
+        let kept = plan(&m, true);
+        assert!(kept.contains(&Step::KeepSettings(PathBuf::from(r"C:\Tools\arke\data"))));
+        assert!(kept.contains(&Step::RestoreFolderHandler {
+            settings: Some(PathBuf::from(r"C:\Tools\arke\data\settings.json")),
+        }));
+        // Another copy staying does not keep this copy's own folder.
+        m.others = vec![PathBuf::from(r"C:\Tools\other\arke.exe")];
+        assert!(plan(&m, false).contains(&Step::DeleteSettings(PathBuf::from(
+            r"C:\Tools\arke\data"
+        ))));
     }
 
     /// With another copy installed (say a per-user one next to an all-users test install), only

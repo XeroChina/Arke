@@ -4922,6 +4922,22 @@ net.folder:
   es: Carpeta
   pt-BR: Pasta
   ja: フォルダー
+net.name_optional:
+  en: Name in sidebar (optional)
+  zh-TW: 側邊欄名稱（選填）
+  zh-CN: 侧边栏名称（可选）
+  de: Name in der Seitenleiste (optional)
+  es: Nombre en la barra lateral (opcional)
+  pt-BR: Nome na barra lateral (opcional)
+  ja: サイドバーの名前（任意）
+net.name_hint:
+  en: Leave empty to use the address
+  zh-TW: 留空則顯示位址
+  zh-CN: 留空则显示地址
+  de: Leer lassen, um die Adresse zu verwenden
+  es: Dejar vacío para usar la dirección
+  pt-BR: Deixe vazio para usar o endereço
+  ja: 空欄の場合はアドレスを使用
 net.letter:
   en: Drive letter
   zh-TW: 磁碟機代號
@@ -4930,6 +4946,14 @@ net.letter:
   es: Letra de unidad
   pt-BR: Letra da unidade
   ja: ドライブ文字
+net.no_letter:
+  en: None
+  zh-TW: 不指定
+  zh-CN: 不分配
+  de: Keiner
+  es: Ninguna
+  pt-BR: Nenhuma
+  ja: なし
 net.user:
   en: User name
   zh-TW: 使用者名稱

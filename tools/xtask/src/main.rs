@@ -184,17 +184,22 @@ fn git(args: &[&str]) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-/// `repo = "owner/name"` from `release.toml`: the GitHub repo that hosts releases.
-fn releases_repo() -> String {
+/// One `key = value` entry from `release.toml`.
+fn release_toml_value(key: &str) -> Option<String> {
     std::fs::read_to_string(root().join("release.toml"))
         .unwrap_or_default()
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
         .find_map(|l| {
             let (k, v) = l.split_once('=')?;
-            (k.trim() == "repo").then(|| v.trim().trim_matches('"').to_string())
+            (k.trim() == key).then(|| v.trim().trim_matches('"').to_string())
         })
-        .unwrap_or_default()
+        .filter(|v| !v.is_empty())
+}
+
+/// `repo = "owner/name"` from `release.toml`: the GitHub repo that hosts releases.
+fn releases_repo() -> String {
+    release_toml_value("repo").unwrap_or_default()
 }
 
 fn value_of(args: &[String], name: &str) -> Option<String> {
@@ -253,7 +258,11 @@ fn release_version(channel: &str, args: &[String]) -> Result<String> {
                 "{} unused changesets: run cargo xtask version before a stable release",
                 changes.len()
             );
-            Ok(fmt_triple(current_version()?))
+            let base = fmt_triple(current_version()?);
+            match release_toml_value("revision") {
+                Some(rev) => Ok(format!("{base}.{rev}")),
+                None => Ok(base),
+            }
         }
         "rc" => {
             let next = fmt_triple(next_version(&changes)?);

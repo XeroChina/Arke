@@ -2582,11 +2582,20 @@ fn network_drive_dialog_connects_in_the_background(cx: &mut TestAppContext) {
 
     // Correct: connects and the dialog closes.
     dialog.update(cx, |d, cx| {
+        d.set_name_for_test("Home Media", cx);
         d.fill_for_test(r"\\nas\media", "bob", "secret", cx);
     });
     wait_for(cx, "dialog did not close", &|cx| {
         ws.update(cx, |ws, _| ws.net_dialog_for_test()).is_none()
     });
+    assert_eq!(
+        settings(cx).place_name(Path::new(r"\\nas\media")),
+        Some("Home Media")
+    );
+    assert_eq!(
+        settings(cx).place_name(Path::new(r"Z:\")),
+        Some("Home Media")
+    );
     let requests = shell.net_connects.lock().clone();
     let last = requests.last().unwrap();
     assert_eq!(last.share, PathBuf::from(r"\\nas\media"));

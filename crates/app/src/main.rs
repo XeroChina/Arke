@@ -21,6 +21,9 @@
 //!
 //! By default the first Arke stays in the background after its last window closes, so later
 //! launches only open a window without reinitializing the GPU. See `instance.rs`.
+//!
+//! Portable mode: an empty file named `portable` next to the exe moves every data file (settings,
+//! index, log, downloads) to `<exe folder>\data`. See `paths.rs`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // Tests may unwrap and panic.
@@ -60,10 +63,12 @@ mod instance;
 mod media;
 mod menu_pin_looks;
 mod motion;
+mod net_creds;
 mod net_dialog;
 mod op_center;
 mod op_queue;
 mod palette;
+mod paths;
 mod place_names;
 mod popup;
 mod prefs;

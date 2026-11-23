@@ -1308,9 +1308,10 @@ fn save_change(path: &Path, settings: &Settings, change: u64, written: &parking_
     }
 }
 
-/// `%APPDATA%\Arke\settings.json` (string handling only).
+/// Where settings live: `%APPDATA%\Arke\settings.json`, or `<exe>\data\settings.json` in portable
+/// mode (see `paths.rs`). String handling only.
 pub(crate) fn default_path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("Arke").join("settings.json"))
+    Some(crate::paths::settings_dir()?.join("settings.json"))
 }
 
 /// Turns "Open folders in Arke" off in the settings file (for `--restore-explorer`, which runs

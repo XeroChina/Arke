@@ -997,9 +997,10 @@ fn is_within(path: &std::path::Path, root: &std::path::Path) -> bool {
             .is_some_and(|rest| rest.starts_with('\\'))
 }
 
-/// `%LOCALAPPDATA%\Arke\index.bin` (string handling only).
+/// The search index: `%LOCALAPPDATA%\Arke\index.bin`, or `<exe>\data\index.bin` in portable mode
+/// (see `paths.rs`). String handling only.
 pub(crate) fn default_cache_path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join("Arke").join("index.bin"))
+    Some(crate::paths::cache_dir()?.join("index.bin"))
 }
 
 /// Whether a path is on the network (`\\server\share\…` or a mapped drive). Uses the path and the
